@@ -41,6 +41,29 @@ impl WhisperState {
         Self { ctx, ptr }
     }
 
+    /// Hand the encoder to an external implementation (e.g. an NPU) for every
+    /// window this state encodes. See `whisper_set_encoder_callback` in
+    /// whisper.h for the contract: the callback returns 0 when it wrote the
+    /// encoder output, 1 to decline the window (whisper.cpp then runs its own
+    /// encoder) and a negative value on failure. `None` detaches it.
+    ///
+    /// # Safety
+    /// `user_data` must stay valid, and safe to use from the thread that runs
+    /// `full()` or `lang_detect()`, until the callback is detached or this
+    /// state is dropped.
+    pub unsafe fn set_encoder_callback(
+        &mut self,
+        callback: whisper_rs_sys::whisper_encoder_callback,
+        user_data: *mut std::ffi::c_void,
+    ) {
+        whisper_rs_sys::whisper_set_encoder_callback_with_state(
+            self.ctx.ctx,
+            self.ptr,
+            callback,
+            user_data,
+        );
+    }
+
     /// Convert raw PCM audio (floating point 32 bit) to log mel spectrogram.
     /// The resulting spectrogram is stored in the context transparently.
     ///

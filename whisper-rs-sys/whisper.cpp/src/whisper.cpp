@@ -903,6 +903,11 @@ struct whisper_state {
     whisper_openvino_context * ctx_openvino = nullptr;
 #endif
 
+    // whisper_set_encoder_callback(): encoder output from outside whisper.cpp
+    whisper_encoder_callback encoder_cb = nullptr;
+    void * encoder_cb_data = nullptr;
+    std::vector<float> encoder_cb_out;
+
     // [EXPERIMENTAL] token-level timestamps data
     int64_t t_beg  = 0;
     int64_t t_last = 0;
@@ -2364,6 +2369,9 @@ static bool whisper_encode_internal(
                    void * abort_callback_data) {
     const int64_t t_start_us = ggml_time_us();
 
+    // set once the encoder callback has produced this window's output
+    bool encoded_by_callback = false;
+
     // conv
     {
         auto & sched = wstate.sched_conv.sched;
@@ -2402,7 +2410,29 @@ static bool whisper_encode_internal(
             ggml_backend_tensor_set(mel, wstate.inp_mel.data(), 0, ggml_nelements(mel)*sizeof(float));
         }
 
-        if (!whisper_encode_external(wstate)) {
+        if (wstate.encoder_cb) {
+            const int n_ctx   = wstate.exp_n_audio_ctx > 0 ? wstate.exp_n_audio_ctx : wctx.model.hparams.n_audio_ctx;
+            const int n_state = wctx.model.hparams.n_audio_state;
+
+            auto & out = wstate.encoder_cb_out;
+            out.resize((size_t) n_ctx*n_state);
+            const int rc = wstate.encoder_cb(wstate.inp_mel.data(), wctx.model.hparams.n_mels, n_ctx,
+                                             out.data(), n_state, wstate.encoder_cb_data);
+            if (rc < 0) {
+                WHISPER_LOG_ERROR("%s: encoder callback failed (%d)\n", __func__, rc);
+                return false;
+            }
+            if (rc == 0) {
+                GGML_ASSERT(ggml_nelements(wstate.embd_enc) == (int64_t) out.size());
+                ggml_backend_tensor_set(wstate.embd_enc, out.data(), 0, out.size()*sizeof(float));
+                ggml_backend_sched_reset(sched);
+                encoded_by_callback = true;
+            }
+        }
+
+        if (encoded_by_callback) {
+            // the callback produced the encoder output; nothing to compute here
+        } else if (!whisper_encode_external(wstate)) {
             if (!ggml_graph_compute_helper(sched, gf, n_threads)) {
                 return false;
             }
@@ -2418,7 +2448,7 @@ static bool whisper_encode_internal(
     }
 
     // encoder
-    if (!whisper_encode_external(wstate)) {
+    if (!encoded_by_callback && !whisper_encode_external(wstate)) {
         auto & sched = wstate.sched_encode.sched;
 
         ggml_cgraph * gf = whisper_build_graph_encoder(wctx, wstate);
@@ -3542,6 +3572,27 @@ struct whisper_state * whisper_init_state(whisper_context * ctx) {
     }
 
     return state;
+}
+
+void whisper_set_encoder_callback_with_state(
+        struct whisper_context * ctx,
+          struct whisper_state * state,
+       whisper_encoder_callback  cb,
+                          void * user_data) {
+    (void)(ctx);
+    state->encoder_cb      = cb;
+    state->encoder_cb_data = user_data;
+    if (!cb) {
+        state->encoder_cb_out.clear();
+        state->encoder_cb_out.shrink_to_fit();
+    }
+}
+
+void whisper_set_encoder_callback(
+        struct whisper_context * ctx,
+       whisper_encoder_callback  cb,
+                          void * user_data) {
+    whisper_set_encoder_callback_with_state(ctx, ctx->state, cb, user_data);
 }
 
 int whisper_ctx_init_openvino_encoder_with_state(

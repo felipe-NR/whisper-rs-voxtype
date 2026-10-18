@@ -264,6 +264,37 @@ extern "C" {
                     const char * device,
                     const char * cache_dir);
 
+    // Encoder output computed outside whisper.cpp (e.g. on an NPU).
+    //
+    // For every encoder window the callback receives the log-mel input --
+    // n_mel rows of 2*n_ctx frames, row-major per mel bin -- and may write the
+    // encoder output after ln_post, n_ctx rows of n_state floats, into out.
+    // n_ctx follows audio_ctx in whisper_full_params (0 = the model's
+    // n_audio_ctx). It runs on the thread that called whisper_full/encode.
+    //
+    // Return 0 when out holds the encoder output: the ggml conv and encoder
+    // graphs are skipped. Return 1 to decline this window (an n_ctx it cannot
+    // serve, a busy device): whisper.cpp runs its own encoder instead. Return a
+    // negative value to fail the encode. The cross-attention K/V and the
+    // decoder always stay in whisper.cpp.
+    //
+    // Attach after the state exists: its encoder buffers are still allocated,
+    // which is what makes declining possible. Pass cb = NULL to detach.
+    typedef int (*whisper_encoder_callback)(
+            const float * mel, int n_mel, int n_ctx,
+                  float * out, int n_state, void * user_data);
+
+    WHISPER_API void whisper_set_encoder_callback_with_state(
+        struct whisper_context * ctx,
+          struct whisper_state * state,
+       whisper_encoder_callback  cb,
+                          void * user_data);
+
+    WHISPER_API void whisper_set_encoder_callback(
+        struct whisper_context * ctx,
+       whisper_encoder_callback  cb,
+                          void * user_data);
+
     // Frees all allocated memory
     WHISPER_API void whisper_free      (struct whisper_context * ctx);
     WHISPER_API void whisper_free_state(struct whisper_state * state);
