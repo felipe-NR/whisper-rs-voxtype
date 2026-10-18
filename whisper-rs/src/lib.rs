@@ -32,6 +32,7 @@ pub use whisper_ctx::DtwParameters;
 pub use whisper_ctx::WhisperContextParameters;
 use whisper_ctx::WhisperInnerContext;
 pub use whisper_ctx_wrapper::WhisperContext;
+pub use whisper_state::EncoderCallback;
 pub use whisper_grammar::{WhisperGrammarElement, WhisperGrammarElementType};
 pub use whisper_params::{FullParams, SamplingStrategy, SegmentCallbackData};
 #[cfg(feature = "raw-api")]

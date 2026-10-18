@@ -11,6 +11,16 @@ pub use iterator::WhisperStateSegmentIterator;
 pub use segment::WhisperSegment;
 pub use token::WhisperToken;
 
+/// An external encoder: see [`WhisperState::set_encoder_callback`].
+pub type EncoderCallback = unsafe extern "C" fn(
+    mel: *const f32,
+    n_mel: c_int,
+    n_ctx: c_int,
+    out: *mut f32,
+    n_state: c_int,
+    user_data: *mut std::ffi::c_void,
+) -> c_int;
+
 /// Rustified pointer to a Whisper state.
 #[derive(Debug)]
 pub struct WhisperState {
@@ -53,7 +63,7 @@ impl WhisperState {
     /// state is dropped.
     pub unsafe fn set_encoder_callback(
         &mut self,
-        callback: whisper_rs_sys::whisper_encoder_callback,
+        callback: Option<EncoderCallback>,
         user_data: *mut std::ffi::c_void,
     ) {
         whisper_rs_sys::whisper_set_encoder_callback_with_state(
