@@ -907,6 +907,8 @@ struct whisper_state {
     whisper_encoder_callback encoder_cb = nullptr;
     void * encoder_cb_data = nullptr;
     std::vector<float> encoder_cb_out;
+    // the callback produced the window being encoded right now
+    bool encoder_cb_active = false;
 
     // [EXPERIMENTAL] token-level timestamps data
     int64_t t_beg  = 0;
@@ -1975,7 +1977,7 @@ static bool whisper_encode_external(const whisper_state & wstate) {
     const bool use_openvino = wstate.ctx_openvino != nullptr;
 #endif
 
-    return use_coreml || use_openvino;
+    return use_coreml || use_openvino || wstate.encoder_cb_active;
 }
 
 static struct ggml_cgraph * whisper_build_graph_conv(
@@ -2369,8 +2371,36 @@ static bool whisper_encode_internal(
                    void * abort_callback_data) {
     const int64_t t_start_us = ggml_time_us();
 
-    // set once the encoder callback has produced this window's output
-    bool encoded_by_callback = false;
+    // Offer the window to the encoder callback first. If it takes it, the conv
+    // graph below is built in external mode (an embd_enc input of this
+    // window's n_ctx) and the encoder graph is skipped; if it declines, both
+    // run as usual.
+    wstate.encoder_cb_active = false;
+    if (wstate.encoder_cb) {
+        const auto & mel_inp = wstate.mel;
+        const int n_ctx   = wstate.exp_n_audio_ctx > 0 ? wstate.exp_n_audio_ctx : wctx.model.hparams.n_audio_ctx;
+        const int n_state = wctx.model.hparams.n_audio_state;
+        const int n_mels  = wctx.model.hparams.n_mels;
+
+        auto & win = wstate.inp_mel;
+        win.assign((size_t) n_mels*2*n_ctx, 0.0f);
+        const int i0 = std::min(mel_offset,           mel_inp.n_len);
+        const int i1 = std::min(mel_offset + 2*n_ctx, mel_inp.n_len);
+        for (int j = 0; j < mel_inp.n_mel; ++j) {
+            for (int i = i0; i < i1; ++i) {
+                win[j*2*n_ctx + (i - i0)] = mel_inp.data[j*mel_inp.n_len + i];
+            }
+        }
+
+        auto & out = wstate.encoder_cb_out;
+        out.resize((size_t) n_ctx*n_state);
+        const int rc = wstate.encoder_cb(win.data(), n_mels, n_ctx, out.data(), n_state, wstate.encoder_cb_data);
+        if (rc < 0) {
+            WHISPER_LOG_ERROR("%s: encoder callback failed (%d)\n", __func__, rc);
+            return false;
+        }
+        wstate.encoder_cb_active = rc == 0;
+    }
 
     // conv
     {
@@ -2410,28 +2440,11 @@ static bool whisper_encode_internal(
             ggml_backend_tensor_set(mel, wstate.inp_mel.data(), 0, ggml_nelements(mel)*sizeof(float));
         }
 
-        if (wstate.encoder_cb) {
-            const int n_ctx   = wstate.exp_n_audio_ctx > 0 ? wstate.exp_n_audio_ctx : wctx.model.hparams.n_audio_ctx;
-            const int n_state = wctx.model.hparams.n_audio_state;
-
-            auto & out = wstate.encoder_cb_out;
-            out.resize((size_t) n_ctx*n_state);
-            const int rc = wstate.encoder_cb(wstate.inp_mel.data(), wctx.model.hparams.n_mels, n_ctx,
-                                             out.data(), n_state, wstate.encoder_cb_data);
-            if (rc < 0) {
-                WHISPER_LOG_ERROR("%s: encoder callback failed (%d)\n", __func__, rc);
-                return false;
-            }
-            if (rc == 0) {
-                GGML_ASSERT(ggml_nelements(wstate.embd_enc) == (int64_t) out.size());
-                ggml_backend_tensor_set(wstate.embd_enc, out.data(), 0, out.size()*sizeof(float));
-                ggml_backend_sched_reset(sched);
-                encoded_by_callback = true;
-            }
-        }
-
-        if (encoded_by_callback) {
-            // the callback produced the encoder output; nothing to compute here
+        if (wstate.encoder_cb_active) {
+            const auto & out = wstate.encoder_cb_out;
+            GGML_ASSERT(ggml_nelements(wstate.embd_enc) == (int64_t) out.size());
+            ggml_backend_tensor_set(wstate.embd_enc, out.data(), 0, out.size()*sizeof(float));
+            ggml_backend_sched_reset(sched);
         } else if (!whisper_encode_external(wstate)) {
             if (!ggml_graph_compute_helper(sched, gf, n_threads)) {
                 return false;
@@ -2448,7 +2461,7 @@ static bool whisper_encode_internal(
     }
 
     // encoder
-    if (!encoded_by_callback && !whisper_encode_external(wstate)) {
+    if (!whisper_encode_external(wstate)) {
         auto & sched = wstate.sched_encode.sched;
 
         ggml_cgraph * gf = whisper_build_graph_encoder(wctx, wstate);
