@@ -22,7 +22,7 @@ autobenches = false
 description = "Rust bindings for whisper.cpp"
 documentation = "https://docs.rs/whisper-rs"
 readme = "README.md"
-license = "Unlicense"
+license = "MIT"
 repository = "https://codeberg.org/tazz4843/whisper-rs"
 
 [features]

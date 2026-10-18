@@ -28,8 +28,9 @@ callback to ggml-org/whisper.cpp and whisper-rs.
 
 See the commit history for each change on its own.
 
-## Licenses
+## License
 
-whisper-rs and whisper-rs-sys are released under the Unlicense
-(`whisper-rs/LICENSE`); whisper.cpp and ggml are MIT
-(`whisper-rs-sys/whisper.cpp/LICENSE`).
+MIT, see `LICENSE`. The upstream code keeps its own notices:
+whisper-rs and whisper-rs-sys were released under the Unlicense
+(`whisper-rs/LICENSE`), which allows relicensing; whisper.cpp and ggml are MIT
+(`whisper-rs-sys/whisper.cpp/LICENSE`), and that notice stays with them.
