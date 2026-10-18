@@ -295,6 +295,15 @@ extern "C" {
        whisper_encoder_callback  cb,
                           void * user_data);
 
+    // Set the encoder context (audio_ctx) a state uses outside whisper_full,
+    // e.g. for whisper_lang_auto_detect_with_state. 0 = the model's
+    // n_audio_ctx. whisper_full overwrites it from its params.
+    // Returns 0, or -1 when n_audio_ctx is out of range.
+    WHISPER_API int whisper_set_audio_ctx_with_state(
+        struct whisper_context * ctx,
+          struct whisper_state * state,
+                           int   n_audio_ctx);
+
     // Frees all allocated memory
     WHISPER_API void whisper_free      (struct whisper_context * ctx);
     WHISPER_API void whisper_free_state(struct whisper_state * state);

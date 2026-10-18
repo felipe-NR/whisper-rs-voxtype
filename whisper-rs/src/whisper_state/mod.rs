@@ -64,6 +64,20 @@ impl WhisperState {
         );
     }
 
+    /// Set the encoder context (`audio_ctx`) this state uses outside `full()`,
+    /// e.g. for [`WhisperState::lang_detect`]. 0 means the model's full
+    /// context. `full()` overwrites it from its params.
+    pub fn set_audio_ctx(&mut self, n_audio_ctx: i32) -> Result<(), WhisperError> {
+        let ret = unsafe {
+            whisper_rs_sys::whisper_set_audio_ctx_with_state(self.ctx.ctx, self.ptr, n_audio_ctx)
+        };
+        if ret == 0 {
+            Ok(())
+        } else {
+            Err(WhisperError::GenericError(ret))
+        }
+    }
+
     /// Convert raw PCM audio (floating point 32 bit) to log mel spectrogram.
     /// The resulting spectrogram is stored in the context transparently.
     ///

@@ -3595,6 +3595,18 @@ void whisper_set_encoder_callback(
     whisper_set_encoder_callback_with_state(ctx, ctx->state, cb, user_data);
 }
 
+int whisper_set_audio_ctx_with_state(
+        struct whisper_context * ctx,
+          struct whisper_state * state,
+                           int   n_audio_ctx) {
+    if (n_audio_ctx < 0 || n_audio_ctx > whisper_n_audio_ctx(ctx)) {
+        WHISPER_LOG_ERROR("%s: audio_ctx %d out of range [0, %d]\n", __func__, n_audio_ctx, whisper_n_audio_ctx(ctx));
+        return -1;
+    }
+    state->exp_n_audio_ctx = n_audio_ctx;
+    return 0;
+}
+
 int whisper_ctx_init_openvino_encoder_with_state(
         struct whisper_context * ctx,
           struct whisper_state * state,
@@ -6858,6 +6870,16 @@ int whisper_full_with_state(
             return -2;
         }
     }
+
+    // Apply audio_ctx before language detection, so detection encodes the same
+    // window the transcription will: an external encoder (see
+    // whisper_set_encoder_callback) then sees one window twice and can serve
+    // the second from what it computed for the first.
+    if (params.audio_ctx > whisper_n_audio_ctx(ctx)) {
+        WHISPER_LOG_ERROR("%s: audio_ctx is larger than the maximum allowed (%d > %d)\n", __func__, params.audio_ctx, whisper_n_audio_ctx(ctx));
+        return -5;
+    }
+    state->exp_n_audio_ctx = params.audio_ctx;
 
     // auto-detect language if not specified
     if (params.language == nullptr || strlen(params.language) == 0 || strcmp(params.language, "auto") == 0 || params.detect_language) {
