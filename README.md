@@ -18,9 +18,10 @@ callback to ggml-org/whisper.cpp and whisper-rs.
   skipped), 1 to decline the window (whisper.cpp runs its own encoder), or a
   negative value on failure. Cross-attention K/V, decoding, language detection
   and timestamps stay in whisper.cpp.
-- `whisper_full` applies `audio_ctx` before language auto-detection, so
-  detection encodes the same window as the transcription and an external
-  encoder can serve both from one encode.
+- When an encoder callback is attached, `whisper_full` applies `audio_ctx`
+  before language auto-detection, so detection encodes the same window as the
+  transcription and the external encoder can serve both from one encode.
+  Without a callback, detection is unchanged and uses the model's full context.
 - `whisper_set_audio_ctx_with_state`, for callers that run language detection
   themselves.
 - whisper-rs: `WhisperState::set_encoder_callback`, `WhisperState::set_audio_ctx`

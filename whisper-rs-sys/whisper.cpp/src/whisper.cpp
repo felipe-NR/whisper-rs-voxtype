@@ -6884,15 +6884,18 @@ int whisper_full_with_state(
         }
     }
 
-    // Apply audio_ctx before language detection, so detection encodes the same
-    // window the transcription will: an external encoder (see
-    // whisper_set_encoder_callback) then sees one window twice and can serve
-    // the second from what it computed for the first.
-    if (params.audio_ctx > whisper_n_audio_ctx(ctx)) {
-        WHISPER_LOG_ERROR("%s: audio_ctx is larger than the maximum allowed (%d > %d)\n", __func__, params.audio_ctx, whisper_n_audio_ctx(ctx));
-        return -5;
+    // With an external encoder (see whisper_set_encoder_callback), apply
+    // audio_ctx before language detection, so detection encodes the same window
+    // the transcription will: the encoder then sees one window twice and can
+    // serve the second from what it computed for the first. Without one,
+    // detection keeps encoding the model's full context.
+    if (state->encoder_cb) {
+        if (params.audio_ctx > whisper_n_audio_ctx(ctx)) {
+            WHISPER_LOG_ERROR("%s: audio_ctx is larger than the maximum allowed (%d > %d)\n", __func__, params.audio_ctx, whisper_n_audio_ctx(ctx));
+            return -5;
+        }
+        state->exp_n_audio_ctx = params.audio_ctx;
     }
-    state->exp_n_audio_ctx = params.audio_ctx;
 
     // auto-detect language if not specified
     if (params.language == nullptr || strlen(params.language) == 0 || strcmp(params.language, "auto") == 0 || params.detect_language) {
